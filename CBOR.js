@@ -490,4 +490,5 @@ function decodeFirst(data, tagger, simpleValue) {
   return decode(data, tagger, simpleValue, true);
 }
 
-export { encode, decode };
+export const CBOR = { encode, decode, decodeFirst };
+
