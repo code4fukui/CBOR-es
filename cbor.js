@@ -22,10 +22,131 @@
  * SOFTWARE.
  */
 
-(function(global, undefined) { "use strict";
-var POW_2_24 = 5.960464477539063e-8,
-    POW_2_32 = 4294967296,
-    POW_2_53 = 9007199254740992;
+import { fitsFloat16, fitsFloat32 } from "./floatutil.js";
+
+const POW_2_24 = 5.960464477539063e-8;
+const POW_2_32 = 4294967296;
+const POW_2_53 = 9007199254740992;
+
+/**
+ * Encode a BigInt as CBOR bignum (tags 2/3) per RFC 8949.
+ *
+ * - Positive: tag(2) + bstr(magnitude)
+ * - Negative: tag(3) + bstr(magnitude of (-1 - value))
+ *
+ * Returns Uint8Array (CBOR bytes).
+ */
+export function getBigNumBytes(bignum) {
+  if (typeof bignum !== "bigint") {
+    throw new TypeError("writeBigNum expects a BigInt");
+  }
+
+  // Tag 2 for positive, tag 3 for negative (using -1 - n encoding)
+  const isNeg = bignum < 0n;
+  const tag = isNeg ? 3 : 2;
+
+  // For negative numbers CBOR bignum uses: value = -1 - n, where n is unsigned
+  const n = isNeg ? (-1n - bignum) : bignum;
+
+  // Magnitude as minimal big-endian bytes (0 => empty bstr)
+  const mag = bigIntToMinimalBE(n);
+
+  // Assemble: tag + bstr header + mag
+  const out = new Uint8Array(1 + bstrHeaderLength(mag.length) + mag.length);
+  let o = 0;
+
+  // tag(2) = 0xC2, tag(3) = 0xC3 (both small tags fit in one byte)
+  out[o++] = 0xC0 | tag;
+
+  // bstr header
+  o += writeBstrHeader(out, o, mag.length);
+
+  // magnitude bytes
+  out.set(mag, o);
+
+  return out;
+}
+
+function bigIntToMinimalBE(n) {
+  if (n < 0n) throw new RangeError("Magnitude must be non-negative");
+  if (n === 0n) return new Uint8Array(0);
+
+  const bytes = [];
+  while (n > 0n) {
+    bytes.push(Number(n & 0xffn));
+    n >>= 8n;
+  }
+  bytes.reverse();
+  return Uint8Array.from(bytes);
+}
+
+function bstrHeaderLength(len) {
+  if (len <= 23) return 1;
+  if (len <= 0xff) return 2;
+  if (len <= 0xffff) return 3;
+  if (len <= 0xffffffff) return 5;
+  // JS typed arrays can't exceed 2^32-1 length anyway, but keep for completeness
+  return 9;
+}
+
+function writeBstrHeader(out, offset, len) {
+  // major type 2 (bstr)
+  if (len <= 23) {
+    out[offset] = 0x40 | len;
+    return 1;
+  }
+  if (len <= 0xff) {
+    out[offset] = 0x58;
+    out[offset + 1] = len;
+    return 2;
+  }
+  if (len <= 0xffff) {
+    out[offset] = 0x59;
+    out[offset + 1] = (len >>> 8) & 0xff;
+    out[offset + 2] = len & 0xff;
+    return 3;
+  }
+  if (len <= 0xffffffff) {
+    out[offset] = 0x5a;
+    out[offset + 1] = (len >>> 24) & 0xff;
+    out[offset + 2] = (len >>> 16) & 0xff;
+    out[offset + 3] = (len >>> 8) & 0xff;
+    out[offset + 4] = len & 0xff;
+    return 5;
+  }
+  // 64-bit length (rare in JS)
+  out[offset] = 0x5b;
+  // write 8-byte big-endian length
+  const hi = Math.floor(len / 2 ** 32);
+  const lo = len >>> 0;
+  out[offset + 1] = (hi >>> 24) & 0xff;
+  out[offset + 2] = (hi >>> 16) & 0xff;
+  out[offset + 3] = (hi >>> 8) & 0xff;
+  out[offset + 4] = hi & 0xff;
+  out[offset + 5] = (lo >>> 24) & 0xff;
+  out[offset + 6] = (lo >>> 16) & 0xff;
+  out[offset + 7] = (lo >>> 8) & 0xff;
+  out[offset + 8] = lo & 0xff;
+  return 9;
+}
+
+const encoder = new TextEncoder();
+
+const sortByBytes = (keys) => {
+  const cache = new Map(
+    keys.map(k => [k, encoder.encode(k.normalize("NFC"))])
+  );
+
+  return keys.sort((a, b) => {
+    const ba = cache.get(a);
+    const bb = cache.get(b);
+    const len = Math.min(ba.length, bb.length);
+    for (let i = 0; i < len; i++) {
+      if (ba[i] !== bb[i]) return ba[i] - bb[i];
+    }
+    return ba.length - bb.length;
+  });
+};
 
 function encode(value) {
   var data = new ArrayBuffer(256);
@@ -52,6 +173,12 @@ function encode(value) {
   }
   function commitWrite() {
     offset += lastLength;
+  }
+  function writeFloat16(value) {
+    commitWrite(prepareWrite(2).setFloat16(offset, value));
+  }
+  function writeFloat32(value) {
+    commitWrite(prepareWrite(4).setFloat32(offset, value));
   }
   function writeFloat64(value) {
     commitWrite(prepareWrite(8).setFloat64(offset, value));
@@ -110,6 +237,12 @@ function encode(value) {
       return writeUint8(0xf7);
 
     switch (typeof value) {
+      case "bigint":
+        if (value > POW_2_53 || value < -POW_2_53) {
+          const b = getBigNumBytes(value);
+          return writeUint8Array(b);
+        }
+        value = Number(value);
       case "number":
         if (Math.floor(value) === value) {
           if (0 <= value && value <= POW_2_53)
@@ -117,8 +250,17 @@ function encode(value) {
           if (-POW_2_53 <= value && value < 0)
             return writeTypeAndLength(1, -(value + 1));
         }
-        writeUint8(0xfb);
-        return writeFloat64(value);
+        
+        if (fitsFloat16(value)) {
+          writeUint8(0xf9); // float16
+          return writeFloat16(value);
+        } else if (fitsFloat32(value)) {
+          writeUint8(0xfa); // float32
+          return writeFloat32(value);
+        } else {
+          writeUint8(0xfb); // float64
+          return writeFloat64(value);
+        }
 
       case "string":
         var utf8data = [];
@@ -153,13 +295,15 @@ function encode(value) {
         if (Array.isArray(value)) {
           length = value.length;
           writeTypeAndLength(4, length);
-          for (i = 0; i < length; ++i)
+          for (let i = 0; i < length; ++i) {
             encodeItem(value[i]);
+          }
         } else if (value instanceof Uint8Array) {
           writeTypeAndLength(2, value.length);
           writeUint8Array(value);
         } else {
-          var keys = Object.keys(value);
+          const keys = Object.keys(value);
+          sortByBytes(keys);
           length = keys.length;
           writeTypeAndLength(5, length);
           for (i = 0; i < length; ++i) {
@@ -394,13 +538,4 @@ function decode(data, tagger, simpleValue) {
   return ret;
 }
 
-var obj = { encode: encode, decode: decode };
-
-if (typeof define === "function" && define.amd)
-  define("cbor/cbor", obj);
-else if (typeof module !== "undefined" && module.exports)
-  module.exports = obj;
-else if (!global.CBOR)
-  global.CBOR = obj;
-
-})(this);
+export { encode, decode };

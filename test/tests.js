@@ -371,7 +371,8 @@ var testcases = function(undefined) {
     ], [
       "Float64 +Infinity",
       "fb7ff0000000000000",
-      Infinity
+      Infinity,
+      true
     ], [
       "Float64 NaN",
       "fb7ff8000000000000",
@@ -380,7 +381,8 @@ var testcases = function(undefined) {
     ], [
       "Float64 -Infinity",
       "fbfff0000000000000",
-      -Infinity
+      -Infinity,
+      true
     ] ];
 }();
 

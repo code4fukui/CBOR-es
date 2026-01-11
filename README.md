@@ -1,15 +1,13 @@
 cbor-js
 =======
 
-The Concise Binary Object Representation (CBOR) data format ([RFC 7049](http://tools.ietf.org/html/rfc7049)) implemented in pure JavaScript.
+The Concise Binary Object Representation (CBOR) data format ([RFC 8949](https://datatracker.ietf.org/doc/html/rfc8949)) implemented in pure JavaScript (ES Module), with deterministic canonicalization rules:
 
-[![Build Status](https://api.travis-ci.org/paroga/cbor-js.svg)](https://travis-ci.org/paroga/cbor-js)
-[![Coverage Status](https://coveralls.io/repos/paroga/cbor-js/badge.svg?branch=master)](https://coveralls.io/r/paroga/cbor-js?branch=master)
-[![Dependency status](https://david-dm.org/paroga/cbor-js/status.svg)](https://david-dm.org/paroga/cbor-js#info=dependencies&view=table)
-[![Dev Dependency Status](https://david-dm.org/paroga/cbor-js/dev-status.svg)](https://david-dm.org/paroga/cbor-js#info=devDependencies&view=table)
-[![Selenium Test Status](https://saucelabs.com/buildstatus/paroga-cbor-js)](https://saucelabs.com/u/paroga-cbor-js)
-
-[![Selenium Test Status](https://saucelabs.com/browser-matrix/paroga-cbor-js.svg)](https://saucelabs.com/u/paroga-cbor-js)
+- **Map keys** are **NFC-normalized** and sorted by **UTF-8 byte lexicographic order**, with **no duplicate keys** allowed.
+- **Numbers** are encoded in the **shortest form**:
+  - integers use the smallest CBOR integer encoding,
+  - floating-point values use the shortest IEEE 754 width that preserves the value,
+  - values beyond JavaScript’s safe integer range (≥ 9007199254740992 or ≤ -9007199254740992) are encoded as **BigInt** (CBOR bignum tags).
 
 API
 ---
@@ -50,4 +48,11 @@ websocket.onmessage = function(event) {
 };
 ...
 websocket.send(CBOR.encode(message));
+```
+
+Test
+----
+
+```sh
+deno test --allow-import=code4fukui.github.io,deno.land
 ```
