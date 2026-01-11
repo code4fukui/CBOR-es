@@ -1,5 +1,4 @@
-CBOR-es
-=======
+# CBOR-es
 
 The Concise Binary Object Representation (CBOR) data format ([RFC 8949](https://datatracker.ietf.org/doc/html/rfc8949)) implemented in pure JavaScript (ES Module), with deterministic canonicalization rules:
 
@@ -9,8 +8,7 @@ The Concise Binary Object Representation (CBOR) data format ([RFC 8949](https://
   - floating-point values use the shortest IEEE 754 width that preserves the value,
   - values beyond JavaScript’s safe integer range (≥ 9007199254740992 or ≤ -9007199254740992) are encoded as **BigInt** (CBOR bignum tags).
 
-API
----
+## API
 
 The `CBOR`-object provides the following two functions:
 
@@ -20,8 +18,7 @@ CBOR.**decode**(*data*)
 CBOR.**encode**(*data*)
 > Take the JavaScript object *data* and return it encoded as a Uint8Array object.
 
-Usage
------
+## Usage
 
 Include `CBOR.js` in your or HTML page:
 ```js
@@ -47,8 +44,7 @@ websocket.onmessage = (event) => {
 websocket.send(CBOR.encode(message));
 ```
 
-Test
-----
+## Test
 
 ```sh
 deno test --allow-import=code4fukui.github.io,deno.land
